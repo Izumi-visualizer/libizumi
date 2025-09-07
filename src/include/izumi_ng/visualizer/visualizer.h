@@ -26,4 +26,6 @@ izumi_handle_t izumi_prepare(const char * trace_path, izumi_instruction_table_ar
 
 izumi_error_t izumi_parse(izumi_handle_t handle, size_t length_hint);
 
+izumi_error_t izumi_done(izumi_handle_t handle);
+
 #endif
