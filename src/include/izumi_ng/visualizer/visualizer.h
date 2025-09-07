@@ -22,8 +22,8 @@ typedef struct {
     char * details;
 } izumi_error_t;
 
-izumi_handle_t izumi_prepare(const char * trace_path);
+izumi_handle_t izumi_prepare(const char * trace_path, izumi_instruction_table_array_t * ita);
 
-izumi_error_t izumi_parse(izumi_handle_t handle, size_t length_hint, izumi_instruction_table_array_t * ita);
+izumi_error_t izumi_parse(izumi_handle_t handle, size_t length_hint);
 
 #endif

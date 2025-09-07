@@ -10,6 +10,7 @@ typedef struct {
     izumi_vector_t inner;
 } izumi_instruction_table_array_t;
 
+izumi_instruction_table_array_t izumi_instruction_table_array__init();
 void izumi_instruction_table_array__free(izumi_instruction_table_array_t * ita);
 
 #endif
