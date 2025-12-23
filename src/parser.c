@@ -35,11 +35,22 @@ int integer_length(u_int64_t number) {
     return length;
 }
 
+void cycle_set(uint64_t *cycle, char *line) {
+    uint64_t new_cycle;
+    
+    if (sscanf(line, "C=\t%lu", &new_cycle) != 1) {
+        fprintf(stderr, "Error: Could not read cycle (C=)\n");
+        exit(1);
+    }
+    
+    *cycle = new_cycle;
+}
+
 void cycle_increment(u_int64_t *cycle, char *line) {
     u_int64_t qtty_cycles;
 
     if (sscanf(line, "C\t%lu", &qtty_cycles) != 1) {
-        fprintf(stderr, "Error: Could not read cycles\n");
+        fprintf(stderr, "Error: Could not read cycles (C)\n");
         exit(1);
     }
 
@@ -202,15 +213,17 @@ InstructionTableArray parse_file(const char *file_name) {
     // Parse the file
     while ((read = getline(&line, &len, file)) != -1) {
         char command;
+        char command_ext;
 
-        if (sscanf(line, "%c", &command) != 1) {
+        if (sscanf(line, "%c%c", &command, &command_ext) != 2) {
             fprintf(stderr, "Error: Could not read command\n");
             exit(1);
         }
 
         switch (command) {
             case 'C':
-                cycle_increment(&cycle, line);
+                if (command_ext == '=') cycle_set(&cycle, line);
+                else cycle_increment(&cycle, line);
                 break;
             case 'I':
                 new_instruction(&tables_array, line);
