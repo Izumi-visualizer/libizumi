@@ -87,33 +87,45 @@ void new_instruction(InstructionTableArray *tables_array, char *line) {
 }
 
 void line_of_data(InstructionTableArray *tables_array, char *line) {
-    u_int64_t id, type;
-    char data[128];
-
-    int chars_read = 0;
-
-    char mem_addr[19];
-
-    if ((chars_read = sscanf(line, "L\t%lu\t%lu\t%18s", &id, &type, mem_addr)) != 3) {
-        fprintf(stderr, "Error: Could not read data\n");
+    const uint8_t LABEL_TYPE_SIDEBAR = 0;
+    
+    uint64_t id;
+    uint8_t type;
+    size_t label_start;
+    
+    // sscanf("L {id} {type} {label...}")
+    if (sscanf(line, "L %lu %hhu %ln", &id, &type, &label_start) != 2) {
+        fprintf(stderr, "Error: Could not read data (L)\n");
         exit(1);
     }
-
+    
+    // We can only handle sidebar labels, so we skip other types
+    if (type != LABEL_TYPE_SIDEBAR) return;
+    
+    // Get instruction and label pointers
     Instruction *instruct = &tables_array->tables[id/256]->content[id%256];
-
-    instruct->mem_addr = malloc(19);
-    strcpy(instruct->mem_addr, mem_addr);
-    instruct->mem_addr[18] = '\0';
-
-    // Skip the first part of the line to get only the data
-    int init = 24 + integer_length(id) + integer_length(type);
-
-    strcpy(data, line + init);
-
-    data[strlen(data) - 1] = '\0';
-
-    instruct->instruction = malloc(strlen(data) + 1);
-    strcpy(instruct->instruction, data);
+    char *label = line + label_start;
+    
+    // Optimistically parse as a commit log entry
+    uint64_t address;
+    size_t disassembly_start = 0; // if misspredicted, disassembly == label
+    
+    // sscanf("{address}: {disassembly...}")
+    if (sscanf(label, "%lx: %ln", &address, &disassembly_start) == 1) {
+        // Instruction address is known, write it
+        instruct->mem_addr = malloc(19);
+        
+        // Standarize to fully padded addresses
+        snprintf(instruct->mem_addr, 19, "%#018lx", address);
+    } else {
+        // Instruction address is unknown, mark it NULL
+        instruct->mem_addr = NULL;
+    }
+    
+    // Copy the disassembly (or full label)
+    char * disassembly = label + disassembly_start;
+    instruct->instruction = malloc(strlen(disassembly) + 1);
+    strcpy(instruct->instruction, disassembly);
 }
 
 void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
