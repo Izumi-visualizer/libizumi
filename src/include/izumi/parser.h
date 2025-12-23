@@ -24,6 +24,13 @@
  *
  * Dump parsing functions.
  */
+ 
+ /** Set the cycle count based on the input line.
+  *
+  * @param cycle The current cycle count.
+  * @param line The input line.
+  */
+ void cycle_set(uint64_t *cycle, char* line);
 
 /** Increment the cycle count based on the input line.
  *
