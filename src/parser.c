@@ -24,6 +24,8 @@
 
 #include <izumi/parser.h>
 
+#include <assert.h>
+
 int integer_length(u_int64_t number) {
     int length = 0;
 
@@ -37,12 +39,12 @@ int integer_length(u_int64_t number) {
 
 void cycle_set(uint64_t *cycle, char *line) {
     uint64_t new_cycle;
-    
+
     if (sscanf(line, "C=\t%lu", &new_cycle) != 1) {
         fprintf(stderr, "Error: Could not read cycle (C=)\n");
         exit(1);
     }
-    
+
     *cycle = new_cycle;
 }
 
@@ -88,44 +90,50 @@ void new_instruction(InstructionTableArray *tables_array, char *line) {
 
 void line_of_data(InstructionTableArray *tables_array, char *line) {
     const uint8_t LABEL_TYPE_SIDEBAR = 0;
-    
+
     uint64_t id;
     uint8_t type;
     size_t label_start;
-    
+
     // sscanf("L {id} {type} {label...}")
     if (sscanf(line, "L %lu %hhu %ln", &id, &type, &label_start) != 2) {
         fprintf(stderr, "Error: Could not read data (L)\n");
         exit(1);
     }
-    
+
     // We can only handle sidebar labels, so we skip other types
     if (type != LABEL_TYPE_SIDEBAR) return;
-    
+
     // Get instruction and label pointers
     Instruction *instruct = &tables_array->tables[id/256]->content[id%256];
     char *label = line + label_start;
-    
+
     // Optimistically parse as a commit log entry
     uint64_t address;
     size_t disassembly_start = 0; // if misspredicted, disassembly == label
-    
+
     // sscanf("{address}: {disassembly...}")
     if (sscanf(label, "%lx: %ln", &address, &disassembly_start) == 1) {
         // Instruction address is known, write it
         instruct->mem_addr = malloc(19);
-        
+
         // Standarize to fully padded addresses
         snprintf(instruct->mem_addr, 19, "%#018lx", address);
     } else {
         // Instruction address is unknown, mark it NULL
         instruct->mem_addr = NULL;
     }
-    
+
     // Copy the disassembly (or full label)
     char * disassembly = label + disassembly_start;
     instruct->instruction = malloc(strlen(disassembly) + 1);
     strcpy(instruct->instruction, disassembly);
+
+    // Clean up newline at the end if present
+    size_t len = strlen(instruct->instruction);
+    if (len > 0 && instruct->instruction[len - 1] == '\n') {
+        instruct->instruction[len - 1] = '\0';
+    }
 }
 
 void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
