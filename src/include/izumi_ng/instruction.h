@@ -1,11 +1,11 @@
-#ifndef IZUMI__VISUALIZER__INSTRUCTION_H
-#define IZUMI__VISUALIZER__INSTRUCTION_H
+#ifndef IZUMI__INSTRUCTION_H
+#define IZUMI__INSTRUCTION_H
 
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "../types.h"
-#include "stage.h"
+#include "./types.h"
+#include "./stage.h"
 
 typedef struct {
     uint64_t thread_id;

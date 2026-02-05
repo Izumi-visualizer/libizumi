@@ -1,9 +1,9 @@
-#ifndef IZUMI__VISUALIZER__INSTRUCTION_TABLE_H
-#define IZUMI__VISUALIZER__INSTRUCTION_TABLE_H
+#ifndef IZUMI__INSTRUCTION_TABLE_H
+#define IZUMI__INSTRUCTION_TABLE_H
 
 #include <stddef.h>
 
-#include "instruction.h"
+#include "./instruction.h"
 
 typedef struct {
     size_t stride;
