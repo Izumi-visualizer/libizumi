@@ -4,6 +4,8 @@ libizumi_c_sources = \
     parser.c
 
 libizumi_headers = \
-    include/izumi/data_structs.h \
-    include/izumi/finder.h \
-    include/izumi/parser.h
+    include/izumi/instruction.h \
+    include/izumi/instruction_table.h \
+    include/izumi/stage.h \
+    include/izumi/types.h \
+    include/izumi/visualizer.h

@@ -6,6 +6,7 @@
 
 #include "./types.h"
 #include "./stage.h"
+#include "./error.h"
 
 typedef struct {
     uint64_t thread_id;
@@ -17,6 +18,6 @@ typedef struct {
     izumi_stage_t stages[];
 } izumi_instruction_t;
 
-void izumi_instruction__stage_counts(izumi_instruction_t * instruction, size_t * counts);
+izumi_error_kind_t izumi_instruction__stage_counts(izumi_instruction_t * instruction, size_t * counts);
 
 #endif

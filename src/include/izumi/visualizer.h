@@ -4,22 +4,12 @@
 #include <stdbool.h>
 
 #include "./instruction_table.h"
+#include "./error.h"
 
 typedef void * izumi_handle_t;
 
-typedef enum {
-    IZUMI_ERROR_KIND__OK = 0,
-    IZUMI_ERROR_KIND__IO,
-    IZUMI_ERROR_KIND__UNSUPPORTED,
-    IZUMI_ERROR_KIND__PARSER,
-    IZUMI_ERROR_KIND__UNKNOWN,
-} izumi_error_kind_t;
-
 typedef struct {
-    union {
-        izumi_error_kind_t kind;
-        bool present;
-    };
+    izumi_error_kind_t kind;
     char * details;
 } izumi_error_t;
 

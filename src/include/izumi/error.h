@@ -1,0 +1,14 @@
+#ifndef IZUMI__ERROR_H
+#define IZUMI__ERROR_H
+
+
+typedef enum {
+    IZUMI_ERROR_KIND__OK = 0,
+    IZUMI_ERROR_KIND__IO,
+    IZUMI_ERROR_KIND__UNSUPPORTED,
+    IZUMI_ERROR_KIND__PARSER,
+    IZUMI_ERROR_KIND__INVALID,
+    IZUMI_ERROR_KIND__UNKNOWN,
+} izumi_error_kind_t;
+
+#endif
