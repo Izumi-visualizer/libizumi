@@ -15,7 +15,8 @@ typedef struct {
     char * tooltip;
     bool flushed;
     size_t lane_count;
-    izumi_stage_t stages[];
+    size_t first_stage_offset;
+    size_t stages_amount;
 } izumi_instruction_t;
 
 izumi_error_kind_t izumi_instruction__stage_counts(izumi_instruction_t * instruction, size_t * counts);
