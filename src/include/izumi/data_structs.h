@@ -31,6 +31,8 @@
 typedef struct {
     uint64_t cycle;     /**< Cycle where the stage starts. */
     uint64_t duration;  /**< Duration of the stage in cycles. */
+    uint64_t lane;      /**< Lane ID the stage was reported on. */
+    bool open;          /**< True if the stage has not been ended yet. */
     char *name;         /**< The name of the stage. */
 } Stage;
 

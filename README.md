@@ -12,6 +12,19 @@ libizumi is a multi-format instruction pipeline dump parser library. If you want
 | Onikiri2-Kanata | v4 | [kanata-log-format.md](https://github.com/shioyadan/Konata/blob/master/docs/kanata-log-format.md) | Everything but threads, lanes, tooltip labels, and dependencies works, full support is planned |
 | Gem5-O3PipeView | ? | [o3-pipeview.py](https://github.com/gem5/gem5/blob/stable/util/o3-pipeview.py) | Planned |
 
+The Kanata parser also accepts CVFPU traces. They use the same v4 commands but
+differ from the Sargantana dumps in three ways: stage names can be longer than
+three characters, the same stage name can appear concurrently on several lanes,
+and instruction labels have no program counter. Stage ends are matched to the
+most recent open stage on the same lane, so per-lane and iterative stages get
+the correct duration; labels without a `0x...:` prefix keep a null PC. Parsing
+of Sargantana traces is unchanged.
+
+CVFPU logs indexed by core IDs can contain sparse IDs and explicit empty
+instruction rows (`I` followed by `R` without any `S`). The parser preserves
+these row indices, safely handles missing table ranges, and does not invent
+pipeline stages for empty instructions.
+
 ## Library features
 
 - Format and frontend agnostic, aiming to allow parsers and visualizers to be developed independently.

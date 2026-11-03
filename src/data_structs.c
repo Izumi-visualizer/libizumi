@@ -72,6 +72,7 @@ void free_InstructionTableArray(InstructionTableArray *array) {
 }
 
 void free_InstructionTable(InstructionTable *table) {
+    if (table == NULL) return;
     for (u_int64_t i = 0; i < 256; i++) {
         if (table->content[i].valid) {
             free_Instruction(&table->content[i]);

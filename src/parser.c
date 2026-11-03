@@ -71,19 +71,15 @@ void new_instruction(InstructionTableArray *tables_array, char *line) {
     Instruction instr_new;
     init_Instruction(&instr_new);
 
-    // Create table if instruction needs to be in a new one
-    if (id_file/256 >= tables_array->qtty_tables) {
-        // Resize the tables array if necessary
-        if (id_file/256 >= tables_array->avail_tables) {
-            increase_InstructionTableArray(tables_array);
-        }
-
+    // Sparse core IDs can skip several tables or arrive out of order.
+    while (id_file/256 >= tables_array->avail_tables)
+        increase_InstructionTableArray(tables_array);
+    if (tables_array->tables[id_file/256] == NULL) {
         tables_array->tables[id_file/256] = malloc(sizeof(InstructionTable));
-
         init_InstructionTable(tables_array->tables[id_file/256]);
-
-        tables_array->qtty_tables = id_file/256 + 1;
     }
+    if (id_file/256 >= tables_array->qtty_tables)
+        tables_array->qtty_tables = id_file/256 + 1;
 
     tables_array->tables[id_file/256]->content[id_file%256] = instr_new;
 }
@@ -113,7 +109,11 @@ void line_of_data(InstructionTableArray *tables_array, char *line) {
     size_t disassembly_start = 0; // if misspredicted, disassembly == label
 
     // sscanf("{address}: {disassembly...}")
-    if (sscanf(label, "%lx: %ln", &address, &disassembly_start) == 1) {
+    // The %n conversion does not add to sscanf's assignment count, so check
+    // disassembly_start to require the ':' separator. Labels without it (for
+    // example the CVFPU trace labels) have no instruction address.
+    if (sscanf(label, "%lx: %ln", &address, &disassembly_start) == 1
+        && disassembly_start != 0) {
         // Instruction address is known, write it
         instruct->mem_addr = malloc(19);
 
@@ -158,15 +158,16 @@ void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
 
     stage->name = stage_name;
     stage->cycle = cycle;
+    stage->lane = stage_id;
+    stage->open = true;
     stage ->duration = 0;
 }
 
 void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
     u_int64_t instr_id, stage_id;
+    char *stage_name = NULL;
 
-    char stage_name[4];
-
-    if (sscanf(line, "E\t%lu\t%lu\t%s", &instr_id, &stage_id, stage_name) != 3) {
+    if (sscanf(line, "E\t%lu\t%lu\t%ms", &instr_id, &stage_id, &stage_name) != 3) {
         fprintf(stderr, "Error: Could not read end stage\n");
         exit(1);
     }
@@ -174,20 +175,47 @@ void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     // Get the instruction
     Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
 
-    // Get the stage
+    // Get the stage. Match the most recently started stage that is still open,
+    // first on the same lane and then on any lane, so repeated stage names
+    // (for example the per-SIMD-lane stages of the CVFPU) close correctly.
     Stage *stage = NULL;
 
-    for (uint64_t i = 0; i < instr->qtty_stages; i++) {
-        if (strcmp(instr->stages[i].name, stage_name) == 0) {
-            stage = &instr->stages[i];
+    for (uint64_t i = instr->qtty_stages; i > 0; i--) {
+        Stage *candidate = &instr->stages[i - 1];
+        if (candidate->open && candidate->lane == stage_id &&
+            strcmp(candidate->name, stage_name) == 0) {
+            stage = candidate;
             break;
+        }
+    }
+
+    if (stage == NULL) {
+        for (uint64_t i = instr->qtty_stages; i > 0; i--) {
+            Stage *candidate = &instr->stages[i - 1];
+            if (candidate->open && strcmp(candidate->name, stage_name) == 0) {
+                stage = candidate;
+                break;
+            }
+        }
+    }
+
+    // Preserve the historical behaviour for traces that repeat a stage name
+    // after it has already been closed.
+    if (stage == NULL) {
+        for (uint64_t i = 0; i < instr->qtty_stages; i++) {
+            if (strcmp(instr->stages[i].name, stage_name) == 0) {
+                stage = &instr->stages[i];
+                break;
+            }
         }
     }
 
     if (stage != NULL) {
         stage->duration = cycle - stage->cycle;
+        stage->open = false;
     }
 
+    free(stage_name);
 }
 
 void retire_instruction(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
@@ -203,8 +231,11 @@ void retire_instruction(InstructionTableArray *tables_array, u_int64_t cycle, ch
     Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
 
     if (!instr->finished) {
-        Stage *stage = &instr->stages[instr->qtty_stages - 1];
-        stage->duration = cycle - stage->cycle;
+        if (instr->qtty_stages > 0) {
+            Stage *stage = &instr->stages[instr->qtty_stages - 1];
+            stage->duration = cycle - stage->cycle;
+            stage->open = false;
+        }
         instr->finished = true;
         instr->flushed = (type == 1);
     }

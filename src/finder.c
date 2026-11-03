@@ -29,6 +29,9 @@ FindResult check_instruction(InstructionTableArray *tables_array, const char* pa
     return_data.position = 0;
     return_data.valid = false;
 
+    if (i >= tables_array->qtty_tables || tables_array->tables[i] == NULL)
+        return return_data;
+
     Instruction inst = tables_array->tables[i]->content[j];
     if (inst.valid) {
         char *to_check = NULL;
