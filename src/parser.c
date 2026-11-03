@@ -67,21 +67,15 @@ void new_instruction(InstructionTableArray *tables_array, char *line) {
         exit(1);
     }
 
-    // Create a new instruction
+    // Create a new instruction. Sparse core IDs can skip several tables or
+    // arrive out of order; get_instruction() grows the array safely.
     Instruction instr_new;
     init_Instruction(&instr_new);
 
-    // Sparse core IDs can skip several tables or arrive out of order.
-    while (id_file/256 >= tables_array->avail_tables)
-        increase_InstructionTableArray(tables_array);
-    if (tables_array->tables[id_file/256] == NULL) {
-        tables_array->tables[id_file/256] = malloc(sizeof(InstructionTable));
-        init_InstructionTable(tables_array->tables[id_file/256]);
-    }
-    if (id_file/256 >= tables_array->qtty_tables)
-        tables_array->qtty_tables = id_file/256 + 1;
-
-    tables_array->tables[id_file/256]->content[id_file%256] = instr_new;
+    Instruction *instr = get_instruction(tables_array, id_file);
+    if (instr->valid)
+        free_Instruction(instr);
+    *instr = instr_new;
 }
 
 void line_of_data(InstructionTableArray *tables_array, char *line) {
@@ -140,13 +134,23 @@ void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     char *stage_name;
     u_int64_t instr_id, stage_id;
 
-    if (sscanf(line, "S\t%lu\t%lu\t%ms", &instr_id, &stage_id, &stage_name) != 3) {
+    if (sscanf(line, "S\t%lu\t%lu\t%m[^\r\n]", &instr_id, &stage_id, &stage_name) != 3) {
         fprintf(stderr, "Error: Could not read stage\n");
         exit(1);
     }
 
     // Get the instruction
     Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
+
+    // A new stage implicitly ends the previous stage on this lane only.
+    // Stages on other lanes continue independently (e.g. pipeline + stalls).
+    for (uint64_t i = 0; i < instr->qtty_stages; ++i) {
+        Stage *previous = &instr->stages[i];
+        if (previous->open && previous->lane == stage_id) {
+            previous->duration = cycle - previous->cycle;
+            previous->open = false;
+        }
+    }
 
     // Resize the stages array if necessary
     if (instr->qtty_stages % 10 == 0) {
@@ -159,6 +163,7 @@ void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     stage->name = stage_name;
     stage->cycle = cycle;
     stage->lane = stage_id;
+    stage->source = 0;
     stage->open = true;
     stage ->duration = 0;
 }
@@ -167,7 +172,7 @@ void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     u_int64_t instr_id, stage_id;
     char *stage_name = NULL;
 
-    if (sscanf(line, "E\t%lu\t%lu\t%ms", &instr_id, &stage_id, &stage_name) != 3) {
+    if (sscanf(line, "E\t%lu\t%lu\t%m[^\r\n]", &instr_id, &stage_id, &stage_name) != 3) {
         fprintf(stderr, "Error: Could not read end stage\n");
         exit(1);
     }
@@ -175,9 +180,8 @@ void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     // Get the instruction
     Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
 
-    // Get the stage. Match the most recently started stage that is still open,
-    // first on the same lane and then on any lane, so repeated stage names
-    // (for example the per-SIMD-lane stages of the CVFPU) close correctly.
+    // E refers to a stage on this exact lane. Never close a same-named stage
+    // on a different lane, or modify a stage that was explicitly closed.
     Stage *stage = NULL;
 
     for (uint64_t i = instr->qtty_stages; i > 0; i--) {
@@ -186,27 +190,6 @@ void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
             strcmp(candidate->name, stage_name) == 0) {
             stage = candidate;
             break;
-        }
-    }
-
-    if (stage == NULL) {
-        for (uint64_t i = instr->qtty_stages; i > 0; i--) {
-            Stage *candidate = &instr->stages[i - 1];
-            if (candidate->open && strcmp(candidate->name, stage_name) == 0) {
-                stage = candidate;
-                break;
-            }
-        }
-    }
-
-    // Preserve the historical behaviour for traces that repeat a stage name
-    // after it has already been closed.
-    if (stage == NULL) {
-        for (uint64_t i = 0; i < instr->qtty_stages; i++) {
-            if (strcmp(instr->stages[i].name, stage_name) == 0) {
-                stage = &instr->stages[i];
-                break;
-            }
         }
     }
 
@@ -231,10 +214,14 @@ void retire_instruction(InstructionTableArray *tables_array, u_int64_t cycle, ch
     Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
 
     if (!instr->finished) {
-        if (instr->qtty_stages > 0) {
-            Stage *stage = &instr->stages[instr->qtty_stages - 1];
-            stage->duration = cycle - stage->cycle;
-            stage->open = false;
+        // Retirement/flush ends every still-open lane. Explicit E boundaries
+        // must not be extended to retirement, including zero-duration stages.
+        for (uint64_t i = 0; i < instr->qtty_stages; ++i) {
+            Stage *stage = &instr->stages[i];
+            if (stage->open) {
+                stage->duration = cycle - stage->cycle;
+                stage->open = false;
+            }
         }
         instr->finished = true;
         instr->flushed = (type == 1);

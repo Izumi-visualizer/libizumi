@@ -62,6 +62,27 @@ void init_Instruction(Instruction *instruction) {
     instruction->flushed = false;
 }
 
+Instruction *get_instruction(InstructionTableArray *array, uint64_t id) {
+    if (array->tables == NULL || array->avail_tables == 0)
+        init_InstructionTableArray(array);
+
+    while (id/256 >= array->avail_tables)
+        increase_InstructionTableArray(array);
+
+    if (array->tables[id/256] == NULL) {
+        array->tables[id/256] = malloc(sizeof(InstructionTable));
+        init_InstructionTable(array->tables[id/256]);
+    }
+
+    if (id/256 >= array->qtty_tables)
+        array->qtty_tables = id/256 + 1;
+
+    Instruction *instruction = &array->tables[id/256]->content[id%256];
+    if (!instruction->valid)
+        init_Instruction(instruction);
+    return instruction;
+}
+
 void free_InstructionTableArray(InstructionTableArray *array) {
     if (array->tables != NULL) {
         for (u_int64_t i = 0; i < array->qtty_tables; i++) {

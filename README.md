@@ -9,7 +9,7 @@ libizumi is a multi-format instruction pipeline dump parser library. If you want
 
 | Format | Versions | Reference | Status |
 |--|--|--|--|
-| Onikiri2-Kanata | v4 | [kanata-log-format.md](https://github.com/shioyadan/Konata/blob/master/docs/kanata-log-format.md) | Everything but threads, lanes, tooltip labels, and dependencies works, full support is planned |
+| Onikiri2-Kanata | v4 | [kanata-log-format.md](https://github.com/shioyadan/Konata/blob/master/docs/kanata-log-format.md) | Pipeline stages, lanes, instruction labels, cycles, retirement and flushes are supported; threads, tooltip labels and dependencies remain unsupported |
 | Gem5-O3PipeView | ? | [o3-pipeview.py](https://github.com/gem5/gem5/blob/stable/util/o3-pipeview.py) | Planned |
 
 The Kanata parser also accepts CVFPU traces. They use the same v4 commands but
@@ -17,8 +17,14 @@ differ from the Sargantana dumps in three ways: stage names can be longer than
 three characters, the same stage name can appear concurrently on several lanes,
 and instruction labels have no program counter. Stage ends are matched to the
 most recent open stage on the same lane, so per-lane and iterative stages get
-the correct duration; labels without a `0x...:` prefix keep a null PC. Parsing
-of Sargantana traces is unchanged.
+the correct duration; labels without a `0x...:` prefix keep a null PC.
+
+`Stage.lane` preserves each numeric Kanata lane ID independently. A new `S`
+implicitly closes the preceding open stage on that lane only. An `E` closes
+only a matching open stage on the specified lane; it never closes a same-named
+stage on another lane. Retirement and flush close all remaining open lanes,
+preserving explicit stage-end cycles and zero-duration stages. The bundled
+single-lane Sargantana examples retain identical parsed stages and durations.
 
 CVFPU logs indexed by core IDs can contain sparse IDs and explicit empty
 instruction rows (`I` followed by `R` without any `S`). The parser preserves
