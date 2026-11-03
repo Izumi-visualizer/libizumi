@@ -1,4 +1,4 @@
-AC_INIT([libizumi], [0.1.1])
+AC_INIT([libizumi], [0.2.0alpha])
 
 AC_CONFIG_SRCDIR([src/libizumi.mk])
 AC_CONFIG_AUX_DIR([build-aux])

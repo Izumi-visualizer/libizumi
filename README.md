@@ -19,12 +19,18 @@ and instruction labels have no program counter. Stage ends are matched to the
 most recent open stage on the same lane, so per-lane and iterative stages get
 the correct duration; labels without a `0x...:` prefix keep a null PC.
 
-`Stage.lane` preserves each numeric Kanata lane ID independently. A new `S`
-implicitly closes the preceding open stage on that lane only. An `E` closes
-only a matching open stage on the specified lane; it never closes a same-named
-stage on another lane. Retirement and flush close all remaining open lanes,
+`Stage.lane` preserves each numeric Kanata lane ID independently, and
+`Stage.source` identifies which trace the stage came from (0 for the parsed
+file; callers merging another file should use 1, 2, ...). A new `S` implicitly
+closes the preceding open stage on that lane only. An `E` closes only a
+matching open stage on the specified lane; it never closes a same-named stage
+on another lane. Retirement and flush close all remaining open lanes,
 preserving explicit stage-end cycles and zero-duration stages. The bundled
 single-lane Sargantana examples retain identical parsed stages and durations.
+
+`get_instruction()` returns an instruction by ID, creating any missing tables
+and initializing the slot when needed. It is intended for tools that merge
+several traces by instruction ID.
 
 CVFPU logs indexed by core IDs can contain sparse IDs and explicit empty
 instruction rows (`I` followed by `R` without any `S`). The parser preserves
