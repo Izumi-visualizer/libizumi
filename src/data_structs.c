@@ -20,14 +20,15 @@
 #include <sys/types.h>
 
 #include <izumi/data_structs.h>
+#include "allocation.h"
 
 
 void init_InstructionTableArray(InstructionTableArray *array) {
     array->qtty_tables = 1;
     array->avail_tables = 4;
-    array->tables = malloc(4 * sizeof(InstructionTable*));
+    array->tables = izumi_malloc(4 * sizeof(InstructionTable*));
 
-    array->tables[0] = malloc(sizeof(InstructionTable));
+    array->tables[0] = izumi_malloc(sizeof(InstructionTable));
 
     init_InstructionTable(array->tables[0]);
 
@@ -43,7 +44,11 @@ void init_InstructionTable(InstructionTable *table) {
 }
 
 void increase_InstructionTableArray(InstructionTableArray *array) {
-    array->tables = realloc(array->tables, 2 * array->avail_tables * sizeof(InstructionTable*));
+    if (array->avail_tables > SIZE_MAX / sizeof(InstructionTable*) / 2) {
+        fprintf(stderr, "Error: Instruction table capacity overflow\n");
+        exit(1);
+    }
+    array->tables = izumi_realloc(array->tables, 2 * array->avail_tables * sizeof(InstructionTable*));
 
     for (uint64_t i = array->avail_tables; i < 2 * array->avail_tables; i++) {
         array->tables[i] = NULL;
@@ -56,13 +61,17 @@ void init_Instruction(Instruction *instruction) {
     instruction->qtty_stages = 0;
     instruction->mem_addr = NULL;
     instruction->instruction = NULL;
-    instruction->stages = malloc(10 * sizeof(Stage));
+    instruction->stages = izumi_malloc(10 * sizeof(Stage));
     instruction->valid = true;
     instruction->finished = false;
     instruction->flushed = false;
 }
 
 Instruction *get_instruction(InstructionTableArray *array, uint64_t id) {
+    if (id/256 >= SIZE_MAX / sizeof(InstructionTable*)) {
+        fprintf(stderr, "Error: Instruction ID exceeds addressable table storage\n");
+        exit(1);
+    }
     if (array->tables == NULL || array->avail_tables == 0)
         init_InstructionTableArray(array);
 
@@ -70,7 +79,7 @@ Instruction *get_instruction(InstructionTableArray *array, uint64_t id) {
         increase_InstructionTableArray(array);
 
     if (array->tables[id/256] == NULL) {
-        array->tables[id/256] = malloc(sizeof(InstructionTable));
+        array->tables[id/256] = izumi_malloc(sizeof(InstructionTable));
         init_InstructionTable(array->tables[id/256]);
     }
 
@@ -90,6 +99,9 @@ void free_InstructionTableArray(InstructionTableArray *array) {
         }
         free(array->tables);
     }
+    array->tables = NULL;
+    array->qtty_tables = 0;
+    array->avail_tables = 0;
 }
 
 void free_InstructionTable(InstructionTable *table) {
@@ -109,8 +121,10 @@ void free_Instruction(Instruction *instruction) {
     free(instruction->stages);
     free(instruction->mem_addr);
     free(instruction->instruction);
+    *instruction = (Instruction){0};
 }
 
 void free_Stage(Stage *stage) {
     free(stage->name);
+    stage->name = NULL;
 }

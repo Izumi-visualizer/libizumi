@@ -100,6 +100,7 @@ void init_Instruction(Instruction *instruction);
 Instruction *get_instruction(InstructionTableArray *array, uint64_t id);
 
 /** This function frees the memory allocated for the InstructionTableArray.
+ * The array is reset to an empty state and can be reused or freed again.
  *
  * @param array The InstructionTableArray to be freed.
  */
@@ -112,6 +113,7 @@ void free_InstructionTableArray(InstructionTableArray *array);
 void free_InstructionTable(InstructionTable *table);
 
 /** This function frees the memory allocated for the Instruction.
+ * The slot is reset to an invalid state so get_instruction() can reuse it.
  *
  * @param instruction The Instruction to be freed.
  */

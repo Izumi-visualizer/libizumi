@@ -1,0 +1,38 @@
+name: C regression tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    name: ${{ matrix.sanitizers == 'yes' && 'Sanitizer tests + fuzz smoke' || 'Regression tests' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sanitizers: ["no", "yes"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool
+      - run: autoreconf --install
+      - run: mkdir build
+      - name: Configure
+        working-directory: build
+        run: ../configure --disable-doxygen-doc --enable-sanitizers=${{ matrix.sanitizers }}
+      - run: make -j2 check
+        working-directory: build
+      - name: Fuzz smoke test
+        if: matrix.sanitizers == 'yes'
+        run: |
+          make -C build/tests fuzz_parser
+          python3 tests/fuzz_parser.py --driver build/tests/fuzz_parser --seconds 10 --output build/fuzz-results
+      - name: Upload fuzz findings
+        if: failure() && matrix.sanitizers == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-results
+          path: build/fuzz-results
+      - name: Show failure details
+        if: failure()
+        run: cat build/tests/test-suite.log
