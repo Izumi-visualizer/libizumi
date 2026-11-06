@@ -4,6 +4,78 @@
 #include <izumi/parser.h>
 #include "test.h"
 
+/* Internal link-visible helper; deliberately not part of the public API. */
+extern int integer_length(uint64_t);
+
+static void integer_lengths(void) {
+    CHECK(integer_length(0) == 1);
+    CHECK(integer_length(1) == 1);
+    uint64_t power = 10;
+    for (int digits = 2; digits <= 20; ++digits) {
+        CHECK(integer_length(power - 1) == digits - 1);
+        CHECK(integer_length(power) == digits);
+        if (digits < 20) power *= 10;
+    }
+    CHECK(integer_length(UINT64_MAX) == 20);
+}
+
+static void cycle_commands(void) {
+    uint64_t cycle = 123;
+    cycle_set(&cycle, "C=\t0");
+    CHECK(cycle == 0);
+    cycle_increment(&cycle, "C\t0\n");
+    CHECK(cycle == 0);
+    cycle_set(&cycle, "C=\t4294967296\r\n");
+    CHECK(cycle == UINT64_C(4294967296));
+    cycle_increment(&cycle, "C\t4294967297");
+    CHECK(cycle == UINT64_C(8589934593));
+    cycle_set(&cycle, "C=\t18446744073709551614\n");
+    cycle_increment(&cycle, "C\t1");
+    CHECK(cycle == UINT64_MAX);
+}
+
+static void instruction_commands(void) {
+    InstructionTableArray array = {0};
+    new_instruction(&array, "I\t1025\t18446744073709551615\t42");
+    CHECK(array.qtty_tables == 5 && array.tables[2] == NULL);
+    Instruction *inst = &array.tables[4]->content[1];
+    CHECK(inst->valid && !inst->finished && !inst->flushed);
+    CHECK(inst->qtty_stages == 0 && inst->stages != NULL);
+    CHECK(inst->instruction == NULL && inst->mem_addr == NULL);
+    new_instruction(&array, "I\t255\t0\t0\n");
+    CHECK(array.tables[0]->content[255].valid);
+    CHECK(!array.tables[0]->content[254].valid);
+    CHECK(inst == get_instruction(&array, 1025));
+    free_InstructionTableArray(&array);
+}
+
+static void stage_and_retirement_commands(void) {
+    InstructionTableArray array = {0};
+    new_instruction(&array, "I\t0\t0\t0");
+    Instruction *inst = get_instruction(&array, 0);
+    new_stage(&array, 10, "S\t0\t18446744073709551615\tExecute\r\n");
+    CHECK(inst->qtty_stages == 1);
+    CHECK(inst->stages[0].cycle == 10 && inst->stages[0].duration == 0);
+    CHECK(inst->stages[0].lane == UINT64_MAX && inst->stages[0].source == 0);
+    CHECK(inst->stages[0].open && strcmp(inst->stages[0].name, "Execute") == 0);
+    end_stage(&array, 11, "E\t0\t18446744073709551615\tWrongName");
+    CHECK(inst->stages[0].open);
+    end_stage(&array, 12, "E\t0\t18446744073709551615\tExecute\r\n");
+    CHECK(!inst->stages[0].open && inst->stages[0].duration == 2);
+    new_stage(&array, 13, "S\t0\t18446744073709551615\tExecute");
+    end_stage(&array, 16, "E\t0\t18446744073709551615\tExecute");
+    CHECK(inst->stages[0].duration == 2 && inst->stages[1].duration == 3);
+    CHECK(!inst->stages[1].open);
+    new_stage(&array, 17, "S\t0\t0\tCommit");
+    retire_instruction(&array, 20, "R\t0\t999\t1");
+    CHECK(inst->finished && inst->flushed);
+    CHECK(inst->stages[0].duration == 2 && inst->stages[1].duration == 3);
+    CHECK(!inst->stages[2].open && inst->stages[2].duration == 3);
+    retire_instruction(&array, 25, "R\t0\t999\t0");
+    CHECK(inst->flushed && inst->stages[2].duration == 3);
+    free_InstructionTableArray(&array);
+}
+
 static InstructionTableArray parse_text(const char *text) {
     char path[] = "izumi-test-XXXXXX";
     int fd = mkstemp(path);
@@ -147,7 +219,7 @@ static void rejected_inputs(void) {
         "L\t4097\t0\tnop\n", "S\t4097\t0\tF\n",
         "E\t4097\t0\tF\n", "R\t4097\t0\t0\n",
         "I\t4097\t0\t0\nS\t256\t0\tF\n",
-        "I\t0\t0\t0\nS\t1\t0\tF\n", NULL};
+        "I\t0\t0\t0\nS\t1\t0\tF\n", "?", NULL};
     for (unsigned i = 0; i < sizeof(inputs) / sizeof(inputs[0]); ++i) {
         char path[] = "izumi-invalid-XXXXXX";
         int fd = mkstemp(path);
@@ -174,6 +246,10 @@ static void rejected_inputs(void) {
 }
 
 int main(void) {
+    RUN(integer_lengths);
+    RUN(cycle_commands);
+    RUN(instruction_commands);
+    RUN(stage_and_retirement_commands);
     RUN(labels);
     RUN(label_boundaries);
     RUN(lane_timing);

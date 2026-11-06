@@ -2,6 +2,10 @@
 #include <izumi/parser.h>
 #include "test.h"
 
+/* Internal link-visible helper; deliberately not part of the public API. */
+extern FindResult check_instruction(InstructionTableArray *, const char *,
+                                   FindDataKind, uint64_t, uint64_t);
+
 static void expect(InstructionTableArray *array, const char *pattern,
                    FindDataKind kind, SearchDirection dir, uint64_t start,
                    bool valid, uint64_t position) {
@@ -57,8 +61,46 @@ static void directions_and_sparse_tables(void) {
     free_InstructionTableArray(&array);
 }
 
+static void single_instruction_checks(void) {
+    InstructionTableArray array = {0};
+    get_instruction(&array, 1025);
+    FindResult result = check_instruction(&array, "nop", INST, 5, 0);
+    CHECK(!result.valid && result.position == 0); /* Out of range. */
+    result = check_instruction(&array, "nop", INST, 2, 0);
+    CHECK(!result.valid && result.position == 0); /* Absent table. */
+    result = check_instruction(&array, "nop", INST, 4, 0);
+    CHECK(!result.valid && result.position == 0); /* Invalid slot. */
+    result = check_instruction(&array, "nop", INST, 4, 1);
+    CHECK(!result.valid && result.position == 0); /* Missing label. */
+    result = check_instruction(&array, "0x10", PC, 4, 1);
+    CHECK(!result.valid && result.position == 0); /* Missing PC. */
+    line_of_data(&array, "L\t1025\t0\t0x10: \t nop a0\n");
+    result = check_instruction(&array, "nop", INST, 4, 1);
+    CHECK(result.valid && result.position == 1025);
+    result = check_instruction(&array, "nops", INST, 4, 1);
+    CHECK(!result.valid && result.position == 0);
+    result = check_instruction(&array, "0x0000000000000010", PC, 4, 1);
+    CHECK(result.valid && result.position == 1025);
+    result = check_instruction(&array, "nop", (FindDataKind)99, 4, 1);
+    CHECK(!result.valid && result.position == 0);
+    free_InstructionTableArray(&array);
+}
+
+static void empty_and_unlabeled_searches(void) {
+    InstructionTableArray array;
+    init_InstructionTableArray(&array);
+    expect(&array, "nop", INST, UP, 0, false, 0);
+    expect(&array, "nop", INST, DOWN, 0, false, 0);
+    get_instruction(&array, 255);
+    expect(&array, "nop", INST, UP, UINT64_MAX, false, 0);
+    expect(&array, "0x0000000000000000", PC, DOWN, 0, false, 0);
+    free_InstructionTableArray(&array);
+}
+
 int main(void) {
     RUN(exact_matching);
     RUN(directions_and_sparse_tables);
+    RUN(single_instruction_checks);
+    RUN(empty_and_unlabeled_searches);
     return EXIT_SUCCESS;
 }
