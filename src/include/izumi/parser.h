@@ -80,6 +80,9 @@ void retire_instruction(InstructionTableArray *tables_array, uint64_t cycle, cha
 /** Parse the file and fill an InstructionTableArray with the data.
  * File-open errors, malformed supported commands and references to instructions
  * not yet registered by I report a diagnostic and exit with status 1.
+ * Numeric fields must be unsigned decimal integers within uint64_t range.
+ * Cycle overflow, decreasing file cycles and embedded NUL bytes are rejected.
+ * Stages and sidebar labels cannot be added after retirement or flush.
  *
  * @param file_name The name of the file.
  * @return An InstructionTableArray with the parsed data.

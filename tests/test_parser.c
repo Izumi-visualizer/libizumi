@@ -172,13 +172,13 @@ static void stage_growth_and_reset(void) {
     Instruction *inst = get_instruction(&array, 0);
     for (unsigned i = 0; i < 35; ++i)
         new_stage(&array, i, "S\t0\t0\tIteration");
+    line_of_data(&array, "L\t0\t0\t0x10: nop");
     retire_instruction(&array, 40, "R\t0\t0\t0");
     CHECK(inst->qtty_stages == 35 && inst->stages[34].duration == 6);
     for (unsigned i = 0; i < 34; ++i)
         CHECK(inst->stages[i].duration == 1 && !inst->stages[i].open);
     retire_instruction(&array, 100, "R\t0\t0\t1");
     CHECK(!inst->flushed && inst->stages[34].duration == 6);
-    line_of_data(&array, "L\t0\t0\t0x10: nop");
     new_instruction(&array, "I\t0\t1\t0");
     CHECK(inst->valid && !inst->finished && !inst->flushed);
     CHECK(inst->qtty_stages == 0 && inst->instruction == NULL && inst->mem_addr == NULL);
@@ -219,7 +219,23 @@ static void rejected_inputs(void) {
         "L\t4097\t0\tnop\n", "S\t4097\t0\tF\n",
         "E\t4097\t0\tF\n", "R\t4097\t0\t0\n",
         "I\t4097\t0\t0\nS\t256\t0\tF\n",
-        "I\t0\t0\t0\nS\t1\t0\tF\n", "?", NULL};
+        "I\t0\t0\t0\nS\t1\t0\tF\n", "?",
+        "C\t-1\n", "C=\t-1\n", "C\t+1\n",
+        "C=\t18446744073709551616\n", "C\t1junk\n", "Crap\t1\n",
+        "C=\t18446744073709551615\nC\t1\n", "C=\t10\nC=\t9\n",
+        "I\t-1\t0\t0\n", "I\t18446744073709551616\t0\t0\n",
+        "I\t0\t0\t0\tjunk\n", "I\t0\t-1\t0\n", "I\t0\t0\t-1\n",
+        "I\t0\t0\t0\nL\t0\t4294967296\twrapped type\n",
+        "I\t0\t0\t0\nL\t0\t-1\tnegative type\n",
+        "I\t0\t0\t0\nS\t0\t-1\tF\n",
+        "I\t0\t0\t0\nE\t0\t-1\tF\n",
+        "I\t0\t0\t0\nR\t0\t0\t2\n",
+        "I\t0\t0\t0\nR\t0\t0\t-1\n",
+        "I\t0\t0\t0\nR\t0\t0\t0junk\n",
+        "I\t0\t0\t0\nR\t0\t0\t0\nS\t0\t0\tF\n",
+        "I\t0\t0\t0\nS\t0\t0\tF\nR\t0\t0\t1\nS\t0\t0\tX\n",
+        "I\t0\t0\t0\nR\t0\t0\t0\nE\t0\t0\tF\n",
+        "I\t0\t0\t0\nR\t0\t0\t0\nL\t0\t0\tnop\n", NULL};
     for (unsigned i = 0; i < sizeof(inputs) / sizeof(inputs[0]); ++i) {
         char path[] = "izumi-invalid-XXXXXX";
         int fd = mkstemp(path);
@@ -245,6 +261,50 @@ static void rejected_inputs(void) {
     }
 }
 
+static void decreasing_stage_cycles(void) {
+    for (unsigned command = 0; command < 3; ++command) {
+        CHECK(fflush(NULL) == 0);
+        pid_t child = fork();
+        CHECK(child >= 0);
+        if (child == 0) {
+            CHECK(freopen("/dev/null", "w", stderr) != NULL);
+            InstructionTableArray array = {0};
+            new_instruction(&array, "I\t0\t0\t0");
+            new_stage(&array, 10, "S\t0\t0\tF");
+            if (command == 0) new_stage(&array, 9, "S\t0\t0\tX");
+            if (command == 1) end_stage(&array, 9, "E\t0\t0\tF");
+            if (command == 2) retire_instruction(&array, 9, "R\t0\t0\t0");
+            free_InstructionTableArray(&array);
+            exit(EXIT_SUCCESS);
+        }
+        int status;
+        CHECK(waitpid(child, &status, 0) == child);
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+}
+
+static void embedded_nul(void) {
+    char path[] = "izumi-nul-XXXXXX";
+    int fd = mkstemp(path);
+    CHECK(fd >= 0);
+    const char data[] = "I\t0\t0\t0\0hidden\n";
+    CHECK(write(fd, data, sizeof(data) - 1) == (ssize_t)(sizeof(data) - 1));
+    CHECK(close(fd) == 0);
+    CHECK(fflush(NULL) == 0);
+    pid_t child = fork();
+    CHECK(child >= 0);
+    if (child == 0) {
+        CHECK(freopen("/dev/null", "w", stderr) != NULL);
+        InstructionTableArray array = parse_file(path);
+        free_InstructionTableArray(&array);
+        exit(EXIT_SUCCESS);
+    }
+    int status;
+    CHECK(waitpid(child, &status, 0) == child);
+    CHECK(unlink(path) == 0);
+    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+}
+
 int main(void) {
     RUN(integer_lengths);
     RUN(cycle_commands);
@@ -258,5 +318,7 @@ int main(void) {
     RUN(empty_and_blank_files);
     RUN(long_labels);
     RUN(rejected_inputs);
+    RUN(decreasing_stage_cycles);
+    RUN(embedded_nul);
     return EXIT_SUCCESS;
 }

@@ -17,6 +17,8 @@
 
 #include <stdint.h>
 #include <inttypes.h>
+#include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +28,49 @@
 #include <izumi/parser.h>
 
 #include <assert.h>
+#include "allocation.h"
+
+static void invalid_command(void) {
+    fprintf(stderr, "Error: Invalid or out-of-range command argument\n");
+    exit(1);
+}
+
+static const char *arguments(const char *line, const char *command) {
+    size_t length = strlen(command);
+    if (strncmp(line, command, length) != 0 ||
+        (line[length] != '\t' && line[length] != ' '))
+        invalid_command();
+    return line + length;
+}
+
+static uint64_t number(const char **cursor) {
+    const char *start = *cursor;
+    while (*start == '\t' || *start == ' ') ++start;
+    if (!isdigit((unsigned char)*start)) invalid_command();
+    errno = 0;
+    char *end;
+    uintmax_t value = strtoumax(start, &end, 10);
+    if (errno == ERANGE || value > UINT64_MAX ||
+        (*end != '\0' && !strchr(" \t\r\n", *end)))
+        invalid_command();
+    *cursor = end;
+    return (uint64_t)value;
+}
+
+static void end_command(const char *cursor) {
+    if (cursor[strspn(cursor, " \t\r\n")] != '\0') invalid_command();
+}
+
+static char *stage_text(const char *cursor) {
+    if (*cursor != '\t' && *cursor != ' ') invalid_command();
+    cursor += strspn(cursor, " \t");
+    size_t length = strcspn(cursor, "\r\n");
+    if (length == 0) invalid_command();
+    char *text = izumi_malloc(length + 1);
+    memcpy(text, cursor, length);
+    text[length] = '\0';
+    return text;
+}
 
 int integer_length(u_int64_t number) {
     int length = 0;
@@ -39,34 +84,26 @@ int integer_length(u_int64_t number) {
 }
 
 void cycle_set(uint64_t *cycle, char *line) {
-    uint64_t new_cycle;
-
-    if (sscanf(line, "C=\t%lu", &new_cycle) != 1) {
-        fprintf(stderr, "Error: Could not read cycle (C=)\n");
-        exit(1);
-    }
-
+    const char *cursor = arguments(line, "C=");
+    uint64_t new_cycle = number(&cursor);
+    end_command(cursor);
     *cycle = new_cycle;
 }
 
 void cycle_increment(u_int64_t *cycle, char *line) {
-    u_int64_t qtty_cycles;
-
-    if (sscanf(line, "C\t%lu", &qtty_cycles) != 1) {
-        fprintf(stderr, "Error: Could not read cycles (C)\n");
-        exit(1);
-    }
-
+    const char *cursor = arguments(line, "C");
+    uint64_t qtty_cycles = number(&cursor);
+    end_command(cursor);
+    if (qtty_cycles > UINT64_MAX - *cycle) invalid_command();
     *cycle += qtty_cycles;
 }
 
 void new_instruction(InstructionTableArray *tables_array, char *line) {
-    u_int64_t id_file, id_sim, id_thread;
-
-    if (sscanf(line, "I\t%lu\t%lu\t%lu", &id_file, &id_sim, &id_thread) != 3) {
-        fprintf(stderr, "Error: Could not read instruction\n");
-        exit(1);
-    }
+    const char *cursor = arguments(line, "I");
+    uint64_t id_file = number(&cursor);
+    (void)number(&cursor); // Simulator ID.
+    (void)number(&cursor); // Thread ID.
+    end_command(cursor);
 
     // Create a new instruction. Sparse core IDs can skip several tables or
     // arrive out of order; get_instruction() grows the array safely.
@@ -92,25 +129,19 @@ static Instruction *existing_instruction(InstructionTableArray *array, uint64_t 
 void line_of_data(InstructionTableArray *tables_array, char *line) {
     const uint8_t LABEL_TYPE_SIDEBAR = 0;
 
-    uint64_t id;
-    unsigned int type;
-    int label_start = 0;
-
-    // sscanf("L {id} {type} {label...}")
-    // Consume exactly one field separator after TYPE. A whitespace directive
-    // would eat leading label whitespace, including empty labels' newlines.
-    if (sscanf(line, "L\t%" SCNu64 "\t%u%n", &id, &type, &label_start) != 2 ||
-        (line[label_start] != '\t' && line[label_start] != ' ')) {
-        fprintf(stderr, "Error: Could not read data (L)\n");
-        exit(1);
-    }
+    const char *cursor = arguments(line, "L");
+    uint64_t id = number(&cursor);
+    uint64_t type = number(&cursor);
+    if (type > UINT32_MAX) invalid_command();
+    if (*cursor != '\t' && *cursor != ' ') invalid_command();
 
     // We can only handle sidebar labels, so we skip other types
     if (type != LABEL_TYPE_SIDEBAR) return;
 
     // Get instruction and label pointers
     Instruction *instruct = existing_instruction(tables_array, id);
-    char *label = line + label_start + 1;
+    if (instruct->finished) invalid_command();
+    const char *label = cursor + 1;
 
     // Optimistically parse as a commit log entry
     uint64_t address;
@@ -124,40 +155,40 @@ void line_of_data(InstructionTableArray *tables_array, char *line) {
         sscanf(label, "%" SCNx64 ": %n", &address, &disassembly_start) == 1
         && disassembly_start != 0) {
         // Instruction address is known, write it
-        instruct->mem_addr = malloc(19);
+        instruct->mem_addr = izumi_malloc(19);
 
         // Standarize to fully padded addresses
         snprintf(instruct->mem_addr, 19, "0x%016" PRIx64, address);
     }
 
     // Copy the disassembly (or full label)
-    char * disassembly = label + disassembly_start;
+    const char *disassembly = label + disassembly_start;
     size_t len = strlen(disassembly);
     if (len > 0 && disassembly[len - 1] == '\n') --len;
     if (len > 0 && disassembly[len - 1] == '\r') --len;
     size_t old_len = instruct->instruction ? strlen(instruct->instruction) : 0;
-    instruct->instruction = realloc(instruct->instruction, old_len + len + 1);
+    if (len >= SIZE_MAX - old_len) invalid_command();
+    instruct->instruction = izumi_realloc(instruct->instruction, old_len + len + 1);
     memcpy(instruct->instruction + old_len, disassembly, len);
     instruct->instruction[old_len + len] = '\0';
 }
 
 void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
-    char *stage_name;
-    u_int64_t instr_id, stage_id;
-
-    if (sscanf(line, "S\t%lu\t%lu\t%m[^\r\n]", &instr_id, &stage_id, &stage_name) != 3) {
-        fprintf(stderr, "Error: Could not read stage\n");
-        exit(1);
-    }
+    const char *cursor = arguments(line, "S");
+    uint64_t instr_id = number(&cursor);
+    uint64_t stage_id = number(&cursor);
+    char *stage_name = stage_text(cursor);
 
     // Get the instruction
     Instruction *instr = existing_instruction(tables_array, instr_id);
+    if (instr->finished) invalid_command();
 
     // A new stage implicitly ends the previous stage on this lane only.
     // Stages on other lanes continue independently (e.g. pipeline + stalls).
     for (uint64_t i = 0; i < instr->qtty_stages; ++i) {
         Stage *previous = &instr->stages[i];
         if (previous->open && previous->lane == stage_id) {
+            if (cycle < previous->cycle) invalid_command();
             previous->duration = cycle - previous->cycle;
             previous->open = false;
         }
@@ -165,7 +196,8 @@ void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
 
     // Resize the stages array if necessary
     if (instr->qtty_stages % 10 == 0) {
-        instr->stages = realloc(instr->stages, (instr->qtty_stages + 10) * sizeof(Stage));
+        if (instr->qtty_stages > SIZE_MAX / sizeof(Stage) - 10) invalid_command();
+        instr->stages = izumi_realloc(instr->stages, (instr->qtty_stages + 10) * sizeof(Stage));
     }
 
     Stage *stage = &instr->stages[instr->qtty_stages];
@@ -180,16 +212,14 @@ void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
 }
 
 void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
-    u_int64_t instr_id, stage_id;
-    char *stage_name = NULL;
-
-    if (sscanf(line, "E\t%lu\t%lu\t%m[^\r\n]", &instr_id, &stage_id, &stage_name) != 3) {
-        fprintf(stderr, "Error: Could not read end stage\n");
-        exit(1);
-    }
+    const char *cursor = arguments(line, "E");
+    uint64_t instr_id = number(&cursor);
+    uint64_t stage_id = number(&cursor);
+    char *stage_name = stage_text(cursor);
 
     // Get the instruction
     Instruction *instr = existing_instruction(tables_array, instr_id);
+    if (instr->finished) invalid_command();
 
     // E refers to a stage on this exact lane. Never close a same-named stage
     // on a different lane, or modify a stage that was explicitly closed.
@@ -205,6 +235,7 @@ void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     }
 
     if (stage != NULL) {
+        if (cycle < stage->cycle) invalid_command();
         stage->duration = cycle - stage->cycle;
         stage->open = false;
     }
@@ -213,12 +244,12 @@ void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
 }
 
 void retire_instruction(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
-    u_int64_t instr_id, retire_id, type;
-
-    if (sscanf(line, "R\t%lu\t%lu\t%lu", &instr_id, &retire_id, &type) != 3) {
-        fprintf(stderr, "Error: Could not read retire\n");
-        exit(1);
-    }
+    const char *cursor = arguments(line, "R");
+    uint64_t instr_id = number(&cursor);
+    (void)number(&cursor); // Retirement ID.
+    uint64_t type = number(&cursor);
+    end_command(cursor);
+    if (type > 1) invalid_command();
 
 
     // Get the instruction
@@ -230,6 +261,7 @@ void retire_instruction(InstructionTableArray *tables_array, u_int64_t cycle, ch
         for (uint64_t i = 0; i < instr->qtty_stages; ++i) {
             Stage *stage = &instr->stages[i];
             if (stage->open) {
+                if (cycle < stage->cycle) invalid_command();
                 stage->duration = cycle - stage->cycle;
                 stage->open = false;
             }
@@ -264,6 +296,8 @@ InstructionTableArray parse_file(const char *file_name) {
         char command;
         char command_ext;
 
+        if (memchr(line, '\0', (size_t)read) != NULL) invalid_command();
+
         if (strspn(line, " \t\r\n") == (size_t)read)
             continue;
 
@@ -274,7 +308,11 @@ InstructionTableArray parse_file(const char *file_name) {
 
         switch (command) {
             case 'C':
-                if (command_ext == '=') cycle_set(&cycle, line);
+                if (command_ext == '=') {
+                    uint64_t previous = cycle;
+                    cycle_set(&cycle, line);
+                    if (cycle < previous) invalid_command();
+                }
                 else cycle_increment(&cycle, line);
                 break;
             case 'I':

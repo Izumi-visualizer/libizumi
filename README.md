@@ -95,8 +95,8 @@ exact PC/mnemonic searches in both directions, labels, independent lanes,
 stage growth and timing, retirement/flushes, and parser error exits. Failure
 details are written to `tests/test-suite.log`. Tests also run in Nix builds.
 
-All 21 library functions are exercised, including the internal helpers.
-There are 23 test groups across these executables:
+Every public library function is exercised, together with the internal helpers.
+There are 25 test groups across these executables:
 
 | Test executable | Functions covered |
 | --- | --- |
@@ -134,9 +134,46 @@ gcov -f -b src/libizumi_la-data_structs.gcno \
   src/libizumi_la-finder.gcno src/libizumi_la-parser.gcno
 ```
 
-The suite currently reaches 21/21 functions and 269/269 executable library
-lines. Function/line coverage does not mean every branch or possible input
-has been tested. Annotated coverage is saved in `*.c.gcov` in that directory.
+Function/line coverage does not mean every branch or possible input has been
+tested. Annotated coverage is saved in `*.c.gcov` in that directory.
+
+### Fuzz testing
+
+The optional fuzz runner requires Python 3 and a sanitizer-enabled build. It
+uses a fresh parser process per input because the current parser API exits on
+invalid input. From the repository root, after configuring `build-sanitized`:
+
+```sh
+make -C build-sanitized
+make -C build-sanitized/tests fuzz_parser
+python3 tests/fuzz_parser.py --driver build-sanitized/tests/fuzz_parser \
+  --seconds 600 --seed 20261106 --output build-sanitized/fuzz-results
+```
+
+Use the libtool wrapper `tests/fuzz_parser`, not `tests/.libs/fuzz_parser`, to
+ensure the just-built library is loaded. The runner mixes generated traces
+checked against an independent Python state model with byte-level mutations
+and fixed invalid-input seeds. It checks labels, PCs, stages, lanes, durations,
+and retirement state, and stops on the first mismatch, sanitizer finding,
+unexpected exit or per-input timeout (2 seconds by default).
+
+Failures save the input, diagnostics and model output (when available), plus
+`summary.json`. Replay a saved input with the driver; use the same seed to
+reproduce a campaign's input sequence. Memory/undefined-behavior checks run on
+all cases, while leak checking runs on valid model cases: rejected inputs exit
+before caller-owned allocations can be freed. The runner caps individual ASAN
+allocations at 64 MiB and treats allocation failure diagnostics as rejection.
+
+The parser rejects signed/overflowing numeric fields, trailing junk in numeric
+commands, cycle overflow, decreasing file cycles, and embedded NUL bytes.
+Allocation failures report an error rather than dereferencing a null pointer.
+Stage starts/ends and sidebar labels after retirement or flush are rejected;
+duplicate retirement remains idempotent.
+
+Local verification with GCC ASAN/LSAN/UBSAN, seed `20261106`: a 600-second
+campaign completed 32,350 cases (20,434 accepted, 11,916 rejected) with no
+remaining findings. An earlier campaign found a post-retirement stage reopening
+bug; the reduced sequence is now included in the C regression tests.
 
 Sidebar labels preserve leading whitespace and append repeated type-0 `L`
 text. A leading `0x...:` on the first label is extracted as a padded PC;
