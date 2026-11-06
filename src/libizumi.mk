@@ -1,4 +1,5 @@
 libizumi_c_sources = \
+    allocation.h \
     data_structs.c \
     finder.c \
     parser.c
