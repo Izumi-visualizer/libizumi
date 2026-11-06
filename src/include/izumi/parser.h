@@ -78,6 +78,8 @@ void end_stage(InstructionTableArray *tables_array, uint64_t cycle, char *line);
 void retire_instruction(InstructionTableArray *tables_array, uint64_t cycle, char *line);
 
 /** Parse the file and fill an InstructionTableArray with the data.
+ * File-open errors, malformed supported commands and references to instructions
+ * not yet registered by I report a diagnostic and exit with status 1.
  *
  * @param file_name The name of the file.
  * @return An InstructionTableArray with the parsed data.
