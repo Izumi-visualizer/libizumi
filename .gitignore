@@ -69,6 +69,7 @@ Makefile
 /build
 /builddir
 /build-sanitized
+/build-coverage
 
 # autoreconf backups
 *~

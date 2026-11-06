@@ -95,6 +95,20 @@ exact PC/mnemonic searches in both directions, labels, independent lanes,
 stage growth and timing, retirement/flushes, and parser error exits. Failure
 details are written to `tests/test-suite.log`. Tests also run in Nix builds.
 
+All 21 library functions are exercised, including the internal helpers.
+There are 23 test groups across these executables:
+
+| Test executable | Functions covered |
+| --- | --- |
+| `test_data_structs` | All nine initialization, allocation, lookup, and cleanup functions in `data_structs.c` |
+| `test_finder` | `find` and the internal `check_instruction` helper |
+| `test_parser` | All eight public parser functions, plus `integer_length` and the private `existing_instruction` helper |
+
+Public functions have direct API tests as well as integration coverage. The
+private instruction lookup is exercised through parser commands, including
+invalid-ID error paths. Numeric boundary tests include zero, decimal digit
+transitions, cycle values beyond 32 bits, and maximum 64-bit values.
+
 For memory and undefined-behavior checks, use a separate build directory:
 
 ```sh
@@ -106,6 +120,23 @@ make check
 
 `make distcheck DISTCHECK_CONFIGURE_FLAGS=--disable-doxygen-doc` also checks
 that the source distribution builds and runs its tests out of tree.
+
+To measure coverage with GCC and its matching `gcov`, start from the repository
+root and use a fresh build directory:
+
+```sh
+mkdir build-coverage
+cd build-coverage
+../configure --disable-doxygen-doc --disable-shared \
+  CFLAGS='-O0 -g --coverage -fprofile-abs-path' LDFLAGS=--coverage
+make check
+gcov -f -b src/libizumi_la-data_structs.gcno \
+  src/libizumi_la-finder.gcno src/libizumi_la-parser.gcno
+```
+
+The suite currently reaches 21/21 functions and 269/269 executable library
+lines. Function/line coverage does not mean every branch or possible input
+has been tested. Annotated coverage is saved in `*.c.gcov` in that directory.
 
 Sidebar labels preserve leading whitespace and append repeated type-0 `L`
 text. A leading `0x...:` on the first label is extracted as a padded PC;

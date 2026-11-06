@@ -45,9 +45,78 @@ static void cleanup_and_reuse(void) {
     free_InstructionTableArray(&array);
 }
 
+static void table_initialization_and_cleanup(void) {
+    InstructionTable *table = malloc(sizeof(*table));
+    CHECK(table != NULL);
+    memset(table, 0xa5, sizeof(*table));
+    init_InstructionTable(table);
+    for (unsigned i = 0; i < 256; ++i)
+        CHECK(!table->content[i].valid);
+    /* Include both end slots and an interior slot in table-owned cleanup. */
+    init_Instruction(&table->content[0]);
+    init_Instruction(&table->content[127]);
+    init_Instruction(&table->content[255]);
+    free_InstructionTable(table);
+    free_InstructionTable(NULL);
+}
+
+static void explicit_capacity_growth(void) {
+    InstructionTableArray array;
+    init_InstructionTableArray(&array);
+    InstructionTable *first = array.tables[0];
+    Instruction *inst = get_instruction(&array, 255);
+    inst->flushed = true;
+    for (unsigned growth = 0; growth < 3; ++growth) {
+        uint64_t old_capacity = array.avail_tables;
+        increase_InstructionTableArray(&array);
+        CHECK(array.avail_tables == old_capacity * 2);
+        CHECK(array.qtty_tables == 1 && array.tables[0] == first);
+        CHECK(get_instruction(&array, 255) == inst && inst->flushed);
+        for (uint64_t i = 1; i < array.avail_tables; ++i)
+            CHECK(array.tables[i] == NULL);
+    }
+    free_InstructionTableArray(&array);
+}
+
+static void instruction_initialization_and_cleanup(void) {
+    Instruction inst;
+    memset(&inst, 0xa5, sizeof(inst));
+    init_Instruction(&inst);
+    CHECK(inst.valid && !inst.finished && !inst.flushed);
+    CHECK(inst.qtty_stages == 0 && inst.stages != NULL);
+    CHECK(inst.mem_addr == NULL && inst.instruction == NULL);
+    inst.mem_addr = strdup("0x0000000000000010");
+    inst.instruction = strdup("nop");
+    CHECK(inst.mem_addr != NULL && inst.instruction != NULL);
+    inst.qtty_stages = 2;
+    inst.stages[0] = (Stage){.name = strdup("Fetch")};
+    inst.stages[1] = (Stage){.name = strdup("Execute")};
+    CHECK(inst.stages[0].name != NULL && inst.stages[1].name != NULL);
+    free_Instruction(&inst);
+    CHECK(!inst.valid && !inst.finished && !inst.flushed);
+    CHECK(inst.qtty_stages == 0 && inst.stages == NULL);
+    CHECK(inst.mem_addr == NULL && inst.instruction == NULL);
+    free_Instruction(&inst);
+}
+
+static void stage_cleanup(void) {
+    Stage stage = {.cycle = 17, .duration = 3, .lane = 7, .source = 2,
+                   .name = strdup("Execute")};
+    CHECK(stage.name != NULL);
+    free_Stage(&stage);
+    CHECK(stage.name == NULL);
+    CHECK(stage.cycle == 17 && stage.duration == 3);
+    CHECK(stage.lane == 7 && stage.source == 2);
+    free_Stage(&stage);
+}
+
 int main(void) {
     RUN(initialization);
     RUN(sparse_growth);
     RUN(cleanup_and_reuse);
+    RUN(table_initialization_and_cleanup);
+    RUN(explicit_capacity_growth);
+    RUN(instruction_initialization_and_cleanup);
+    RUN(stage_cleanup);
     return EXIT_SUCCESS;
 }

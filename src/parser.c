@@ -30,10 +30,10 @@
 int integer_length(u_int64_t number) {
     int length = 0;
 
-    while (number > 0) {
+    do {
         number /= 10;
         length++;
-    }
+    } while (number > 0);
 
     return length;
 }
