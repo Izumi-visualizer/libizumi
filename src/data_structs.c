@@ -90,6 +90,9 @@ void free_InstructionTableArray(InstructionTableArray *array) {
         }
         free(array->tables);
     }
+    array->tables = NULL;
+    array->qtty_tables = 0;
+    array->avail_tables = 0;
 }
 
 void free_InstructionTable(InstructionTable *table) {
@@ -109,8 +112,10 @@ void free_Instruction(Instruction *instruction) {
     free(instruction->stages);
     free(instruction->mem_addr);
     free(instruction->instruction);
+    *instruction = (Instruction){0};
 }
 
 void free_Stage(Stage *stage) {
     free(stage->name);
+    stage->name = NULL;
 }

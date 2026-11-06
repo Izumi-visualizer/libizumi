@@ -82,6 +82,35 @@ Some intersting `configure` flags:
 
 A nix derivation and flake for the library are available. Using the flake system to pin the commit of the library is highly recommended.
 
+## Running tests
+
+From a configured build directory, run:
+
+```sh
+make check
+```
+
+The dependency-free C tests cover table allocation and reuse, sparse IDs,
+exact PC/mnemonic searches in both directions, labels, independent lanes,
+stage growth and timing, retirement/flushes, and parser error exits. Failure
+details are written to `tests/test-suite.log`. Tests also run in Nix builds.
+
+For memory and undefined-behavior checks, use a separate build directory:
+
+```sh
+mkdir build-sanitized
+cd build-sanitized
+../configure --disable-doxygen-doc --enable-sanitizers
+make check
+```
+
+`make distcheck DISTCHECK_CONFIGURE_FLAGS=--disable-doxygen-doc` also checks
+that the source distribution builds and runs its tests out of tree.
+
+Sidebar labels preserve leading whitespace and append repeated type-0 `L`
+text. A leading `0x...:` on the first label is extracted as a padded PC;
+other labels have no PC. Both LF and CRLF line endings are accepted.
+
 ## Documentation
 
 After running `make`, you will find the HTML docs and man pages in the `docs/out` subdirectory of the build tree. `make install` will also install the man pages to your system. If no documentation is generated, ensure that you have `doxygen` installed and rerun the `configure` script before rebuilding.

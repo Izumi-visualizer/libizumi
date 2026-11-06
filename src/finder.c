@@ -54,7 +54,9 @@ FindResult check_instruction(InstructionTableArray *tables_array, const char* pa
                 break;
         }
 
-        if (to_check != NULL && strncmp(to_check, pattern, to_check_len) == 0) {
+        if (to_check != NULL && to_check_len > 0 &&
+            strlen(pattern) == to_check_len &&
+            strncmp(to_check, pattern, to_check_len) == 0) {
             return_data.valid = true;
             return_data.position = i*256+j;
         }
@@ -67,7 +69,7 @@ FindResult find(InstructionTableArray *tables_array, const char *pattern, FindDa
     return_data.valid = false;
     return_data.position = 0;
 
-    if (tables_array->tables == NULL) {
+    if (tables_array->tables == NULL || tables_array->qtty_tables == 0) {
         return return_data;
     }
 
@@ -85,6 +87,10 @@ FindResult find(InstructionTableArray *tables_array, const char *pattern, FindDa
         }
     }
     else {
+        // Start outside the stored range at the last possible instruction.
+        // Otherwise a large caller-provided ID can take billions of iterations.
+        if (init_pos/256 >= tables_array->qtty_tables)
+            init_pos = (tables_array->qtty_tables - 1)*256 + 255;
         for (uint64_t i = init_pos/256; i < UINT64_MAX; --i) {
             for (uint64_t j = (i == init_pos/256) ? init_pos%256 : 255; j < UINT64_MAX; --j) {
                 FindResult inst_result = check_instruction(tables_array, pattern, kind_of_data, i, j);

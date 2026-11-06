@@ -54,10 +54,11 @@ typedef enum SearchDirection {
  * result.
  *
  * @param tables_array The array of tables.
- * @param pattern The pattern to be searched.
+ * @param pattern Exact, nonempty PC string or instruction mnemonic to match.
  * @param kind_of_data The type of data to be searched.
  * @param dir The direction of the search.
- * @param init_pos The initial position of the search.
+ * @param init_pos The initial position of the search (inclusive). An upward
+ * search starting past the stored range begins at the last stored row.
  * @return A FindResult struct with the result of the search.
  */
 FindResult find(InstructionTableArray *tables_array, const char *pattern, FindDataKind kind_of_data, SearchDirection dir, uint64_t init_pos);

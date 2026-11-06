@@ -16,6 +16,7 @@
  */
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -78,15 +79,28 @@ void new_instruction(InstructionTableArray *tables_array, char *line) {
     *instr = instr_new;
 }
 
+static Instruction *existing_instruction(InstructionTableArray *array, uint64_t id) {
+    if (array->tables == NULL || id/256 >= array->qtty_tables ||
+        array->tables[id/256] == NULL ||
+        !array->tables[id/256]->content[id%256].valid) {
+        fprintf(stderr, "Error: Unknown instruction ID %" PRIu64 "\n", id);
+        exit(1);
+    }
+    return &array->tables[id/256]->content[id%256];
+}
+
 void line_of_data(InstructionTableArray *tables_array, char *line) {
     const uint8_t LABEL_TYPE_SIDEBAR = 0;
 
     uint64_t id;
-    uint8_t type;
-    size_t label_start;
+    unsigned int type;
+    int label_start = 0;
 
     // sscanf("L {id} {type} {label...}")
-    if (sscanf(line, "L %lu %hhu %ln", &id, &type, &label_start) != 2) {
+    // Consume exactly one field separator after TYPE. A whitespace directive
+    // would eat leading label whitespace, including empty labels' newlines.
+    if (sscanf(line, "L\t%" SCNu64 "\t%u%n", &id, &type, &label_start) != 2 ||
+        (line[label_start] != '\t' && line[label_start] != ' ')) {
         fprintf(stderr, "Error: Could not read data (L)\n");
         exit(1);
     }
@@ -95,39 +109,36 @@ void line_of_data(InstructionTableArray *tables_array, char *line) {
     if (type != LABEL_TYPE_SIDEBAR) return;
 
     // Get instruction and label pointers
-    Instruction *instruct = &tables_array->tables[id/256]->content[id%256];
-    char *label = line + label_start;
+    Instruction *instruct = existing_instruction(tables_array, id);
+    char *label = line + label_start + 1;
 
     // Optimistically parse as a commit log entry
     uint64_t address;
-    size_t disassembly_start = 0; // if misspredicted, disassembly == label
+    int disassembly_start = 0; // if misspredicted, disassembly == label
 
     // sscanf("{address}: {disassembly...}")
     // The %n conversion does not add to sscanf's assignment count, so check
     // disassembly_start to require the ':' separator. Labels without it (for
     // example the CVFPU trace labels) have no instruction address.
-    if (sscanf(label, "%lx: %ln", &address, &disassembly_start) == 1
+    if (instruct->instruction == NULL && strncmp(label, "0x", 2) == 0 &&
+        sscanf(label, "%" SCNx64 ": %n", &address, &disassembly_start) == 1
         && disassembly_start != 0) {
         // Instruction address is known, write it
         instruct->mem_addr = malloc(19);
 
         // Standarize to fully padded addresses
-        snprintf(instruct->mem_addr, 19, "%#018lx", address);
-    } else {
-        // Instruction address is unknown, mark it NULL
-        instruct->mem_addr = NULL;
+        snprintf(instruct->mem_addr, 19, "0x%016" PRIx64, address);
     }
 
     // Copy the disassembly (or full label)
     char * disassembly = label + disassembly_start;
-    instruct->instruction = malloc(strlen(disassembly) + 1);
-    strcpy(instruct->instruction, disassembly);
-
-    // Clean up newline at the end if present
-    size_t len = strlen(instruct->instruction);
-    if (len > 0 && instruct->instruction[len - 1] == '\n') {
-        instruct->instruction[len - 1] = '\0';
-    }
+    size_t len = strlen(disassembly);
+    if (len > 0 && disassembly[len - 1] == '\n') --len;
+    if (len > 0 && disassembly[len - 1] == '\r') --len;
+    size_t old_len = instruct->instruction ? strlen(instruct->instruction) : 0;
+    instruct->instruction = realloc(instruct->instruction, old_len + len + 1);
+    memcpy(instruct->instruction + old_len, disassembly, len);
+    instruct->instruction[old_len + len] = '\0';
 }
 
 void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line) {
@@ -140,7 +151,7 @@ void new_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     }
 
     // Get the instruction
-    Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
+    Instruction *instr = existing_instruction(tables_array, instr_id);
 
     // A new stage implicitly ends the previous stage on this lane only.
     // Stages on other lanes continue independently (e.g. pipeline + stalls).
@@ -178,7 +189,7 @@ void end_stage(InstructionTableArray *tables_array, u_int64_t cycle, char *line)
     }
 
     // Get the instruction
-    Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
+    Instruction *instr = existing_instruction(tables_array, instr_id);
 
     // E refers to a stage on this exact lane. Never close a same-named stage
     // on a different lane, or modify a stage that was explicitly closed.
@@ -211,7 +222,7 @@ void retire_instruction(InstructionTableArray *tables_array, u_int64_t cycle, ch
 
 
     // Get the instruction
-    Instruction *instr = &tables_array->tables[instr_id/256]->content[instr_id%256];
+    Instruction *instr = existing_instruction(tables_array, instr_id);
 
     if (!instr->finished) {
         // Retirement/flush ends every still-open lane. Explicit E boundaries
@@ -252,6 +263,9 @@ InstructionTableArray parse_file(const char *file_name) {
     while ((read = getline(&line, &len, file)) != -1) {
         char command;
         char command_ext;
+
+        if (strspn(line, " \t\r\n") == (size_t)read)
+            continue;
 
         if (sscanf(line, "%c%c", &command, &command_ext) != 2) {
             fprintf(stderr, "Error: Could not read command\n");
